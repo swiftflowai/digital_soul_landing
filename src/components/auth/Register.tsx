@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Eye, EyeOff, Mail, Lock, User, ArrowLeft, Check } from 'lucide-react';
 import Logo from '../Logo';
+import { supabase } from '../../utils/supabaseClient';
 
 interface RegisterProps {
   onClose: () => void;
@@ -47,14 +48,17 @@ const Register = ({ onClose, onSwitchToLogin }: RegisterProps) => {
       alert('Passwords do not match');
       return;
     }
-    
-    setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
+    try {
+      setIsLoading(true);
+      const email = formData.email.trim();
+      const { error } = await supabase.auth.signUp({ email, password: formData.password });
+      if (error) throw error;
+      alert('Check your inbox to confirm your email.');
+    } catch (err: any) {
+      alert(err.message || 'Registration failed');
+    } finally {
       setIsLoading(false);
-      console.log('Registration attempt:', formData);
-    }, 2000);
+    }
   };
 
   const getPasswordStrengthColor = () => {

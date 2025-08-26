@@ -1,12 +1,16 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Play, Sparkles } from 'lucide-react';
 import AuthModal from './auth/AuthModal';
+import { useAuthRole } from '../context/AuthRoleContext';
 
 const Hero = () => {
   const [authModal, setAuthModal] = useState<{ isOpen: boolean; view: 'login' | 'register' }>({
     isOpen: false,
     view: 'register'
   });
+  const navigate = useNavigate();
+  const { currentUserEmail } = useAuthRole();
 
   const openAuthModal = (view: 'login' | 'register') => {
     setAuthModal({ isOpen: true, view });
@@ -73,7 +77,10 @@ const Hero = () => {
 
             <div className="flex flex-col sm:flex-row gap-4 justify-center items-center pt-8">
               <button 
-                onClick={() => openAuthModal('register')}
+                onClick={() => {
+                  if (currentUserEmail) navigate('/dashboard');
+                  else openAuthModal('register');
+                }}
                 className="group bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-8 py-4 rounded-full font-semibold text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
               >
                 <span className="flex items-center space-x-2">

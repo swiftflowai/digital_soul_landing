@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Mail, ArrowLeft, CheckCircle } from 'lucide-react';
 import Logo from '../Logo';
+import { supabase } from '../../utils/supabaseClient';
 
 interface ForgotPasswordProps {
   onClose: () => void;
@@ -14,13 +15,16 @@ const ForgotPassword = ({ onClose, onBackToLogin }: ForgotPasswordProps) => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsLoading(true);
-    
-    // Simulate API call
-    setTimeout(() => {
-      setIsLoading(false);
+    try {
+      setIsLoading(true);
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo: `${window.location.origin}/reset-password` });
+      if (error) throw error;
       setIsSubmitted(true);
-    }, 1500);
+    } catch (err: any) {
+      alert(err.message || 'Failed to send reset email');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   if (isSubmitted) {

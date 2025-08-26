@@ -49,4 +49,4 @@ const AuthModal = ({ isOpen, onClose, initialView = 'login' }: AuthModalProps) =
   );
 };
 
-export default AuthModal
+export default AuthModal;

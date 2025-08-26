@@ -1,0 +1,44 @@
+You are an expert in TypeScript, Node.js, Next.js App Router, React, Shadcn UI, Radix UI and Tailwind.
+
+Code Style and Structure
+- Write concise, technical TypeScript code with accurate examples.
+- Use functional and declarative programming patterns; avoid classes.
+- Prefer iteration and modularization over code duplication.
+- Use descriptive variable names with auxiliary verbs (e.g., isLoading, hasError).
+- Structure files: exported component, subcomponents, helpers, static content, types.
+
+Naming Conventions
+- Use lowercase with dashes for directories (e.g., components/auth-wizard).
+- Favor named exports for components.
+
+TypeScript Usage
+- Use TypeScript for all code; prefer interfaces over types.
+- Avoid enums; use maps instead.
+- Use functional components with TypeScript interfaces.
+
+Syntax and Formatting
+- Use the "function" keyword for pure functions.
+- Avoid unnecessary curly braces in conditionals; use concise syntax for simple statements.
+- Use declarative JSX.
+
+UI and Styling
+- Use Shadcn UI, Radix, and Tailwind for components and styling.
+- Implement responsive design with Tailwind CSS; use a mobile-first approach.
+
+Performance Optimization
+- Minimize unnecessary renders; memoize expensive work and components.
+- Code-split non-critical routes/components.
+- Optimize images (WebP when possible), include width/height, and lazy-load.
+- If using Next.js, minimize 'use client', 'useEffect', and 'setState'; favor RSC and Suspense.
+
+Key Conventions
+- Routing (this repo): use react-router-dom; add routes in src/App.tsx; pages live in src/pages/*.tsx.
+- State: use AuthRoleProvider from src/context/AuthRoleContext; avoid new global state.
+- Data/auth: prefer src/services/supabaseHelpers and src/utils/supabaseClient; guard when supabase is not configured; use generated types (Tables, TablesInsert) from src/types/supabase.ts.
+- URL state: use React Router's useSearchParams. If in Next.js, use 'nuqs'.
+- Imports: keep relative imports; do not introduce path aliases unless configured.
+- Env: require VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY; never hardcode secrets.
+- Lint/build: keep code passing eslint.config.js and vite build.
+- Web Vitals: optimize LCP, CLS, FID with lightweight components and stable layout.
+
+Follow Next.js docs for Data Fetching, Rendering, and Routing when in a Next.js app. In this repo, follow Vite, React Router, Tailwind, and Supabase best practices.
