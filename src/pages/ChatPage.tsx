@@ -241,6 +241,8 @@ const ChatPage = () => {
   const speakMessage = async (text: string, opts?: { onStart?: () => void }) => {
     try {
       if (!voiceEnabled) return;
+      // Interrupt any browser TTS in progress
+      try { synthesisRef.current?.cancel(); } catch {}
       // Prefer server TTS (clone or default) when signed in and persona is known
       if (authToken && personaId) {
         setIsSpeaking(true);
@@ -248,7 +250,7 @@ const ChatPage = () => {
         if (audio) {
           if (isSimliActive) {
             // Attach with local output so WebAudio tees to speakers and Simli
-            try { await simliRef.current?.attachAudioElement(audio, true); } catch {}
+            try { if (audio.readyState >= 2) await simliRef.current?.attachAudioElement(audio, true); } catch {}
             try { audio.addEventListener('play', () => { try { opts?.onStart?.(); } catch {} }); } catch {}
             audio.muted = false;
             await audio.play().catch(() => {});
@@ -267,7 +269,7 @@ const ChatPage = () => {
         const { audio } = await speakTextPreview(inviteToken, personaId, text, { autoplay: false });
         if (audio) {
           if (isSimliActive) {
-            try { await simliRef.current?.attachAudioElement(audio, true); } catch {}
+            try { if (audio.readyState >= 2) await simliRef.current?.attachAudioElement(audio, true); } catch {}
             try { audio.addEventListener('play', () => { try { opts?.onStart?.(); } catch {} }); } catch {}
             audio.muted = false;
             await audio.play().catch(() => {});
