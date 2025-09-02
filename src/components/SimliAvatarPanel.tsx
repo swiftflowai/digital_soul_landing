@@ -27,7 +27,6 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
     setError(null);
     setIsStarting(true);
     try {
-      // Request dev session params (prefer persona-specific face when provided)
       const qs = personaId ? `?persona_id=${encodeURIComponent(personaId)}` : '';
       const res = await fetch(`/.netlify/functions/simli-start-session${qs}`, {
         method: 'POST',
@@ -40,9 +39,7 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
       const mod = await import('simli-client');
       const { SimliClient } = mod as any;
       clientRef.current = new SimliClient();
-      // Ensure refs are resolved to DOM elements
       if (!videoRef.current || !audioRef.current) throw new Error('Video/Audio elements not ready');
-      // Initialize (capital I) per simli-client API
       clientRef.current.Initialize({
         apiKey: data.api_key,
         faceID: data.face_id || '',
@@ -63,7 +60,6 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
   async function stopSession() {
     setError(null);
     try {
-      // Close (not stop) per simli-client API
       await clientRef.current?.close?.();
       await fetch('/.netlify/functions/simli-stop-session', { method: 'POST', headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined });
     } catch {}
@@ -71,7 +67,6 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
     try { onActiveChange?.(false); } catch {}
   }
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       try { clientRef.current?.close?.(); } catch {}
@@ -79,17 +74,14 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
     };
   }, []);
 
-  // Restart when persona changes to pick the correct face
   useEffect(() => {
     if (!isActive) return;
     (async () => {
       try { await stopSession(); } catch {}
       try { await startSession(); } catch {}
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [personaId]);
 
-  // Expose attach method for lip-syncing arbitrary audio
   useImperativeHandle(ref, () => ({
     attachAudioElement: async (audioEl: HTMLAudioElement, playLocalOutput: boolean = false) => {
       try {
@@ -99,14 +91,11 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
         if (!audioCtxRef.current) audioCtxRef.current = new AudioCtx();
         const ctx = audioCtxRef.current;
         if (ctx?.state === 'suspended') { try { await ctx.resume(); } catch {} }
-        // Ensure media element can be used as WebAudio source reliably
         try { (audioEl as any).crossOrigin = (audioEl as any).crossOrigin || 'anonymous'; } catch {}
         const source = ctx.createMediaElementSource(audioEl);
         const tee = ctx.createGain();
         const dest = ctx.createMediaStreamDestination();
         source.connect(tee);
-        // Only route to WebAudio speakers when explicitly requested.
-        // Default is Simli-only + HTMLAudioElement normal playback to avoid doubling.
         if (playLocalOutput) tee.connect(ctx.destination);
         tee.connect(dest);
         const track = dest.stream.getAudioTracks()[0];
@@ -119,15 +108,17 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
 
   return (
     <div className="w-full relative">
+      {/* Soft status while starting; non-intrusive and cleared once start() resolves */}
+      {isStarting && !isActive && !error && (
+        <div className="text-sm text-amber-700 mb-2">Connecting… this may take a moment</div>
+      )}
       {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
       <div className="relative aspect-video w-full bg-black rounded overflow-hidden">
-        {/* Label top-left */}
         <div className="absolute z-10 left-2 top-2">
           <span className="px-2 py-0.5 rounded-md text-[11px] font-medium bg-white/80 text-gray-800 border border-white/60 shadow-sm">
             Avatar
           </span>
         </div>
-        {/* Overlay controls in top-right */}
         <div className="absolute z-10 right-2 top-2 flex items-center gap-2" data-no-drag>
           {modeToggle}
           {!isActive ? (

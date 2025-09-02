@@ -18,7 +18,7 @@ import PersonaAvatar from '../components/PersonaAvatar';
 import { speakText, speakTextPreview } from '../lib/api/voice';
 import { supabase } from '../utils/supabaseClient';
 import { useAuthRole } from '../context/AuthRoleContext';
-import { getCurrentUserId, listMyMemberships, listMyPersonas, getMyRoleForPersona } from '../services/supabaseHelpers';
+import { getMyRoleForPersona } from '../services/supabaseHelpers';
 import { useStreamedChat } from '../hooks/useStreamedChat';
 import SimliAvatarPanel, { SimliAvatarHandle } from '../components/SimliAvatarPanel';
 import FloatingWindow from '../components/FloatingWindow';
@@ -34,7 +34,7 @@ interface Message {
 
 const ChatPage = () => {
   const navigate = useNavigate();
-  const { currentUserEmail, isSupabaseAuth, personas, memberships } = useAuthRole();
+  const { currentUserEmail, isSupabaseAuth, personas } = useAuthRole();
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
@@ -55,10 +55,10 @@ const ChatPage = () => {
   });
   const [personaName, setPersonaName] = useState<string>('');
   const [personaId, setPersonaId] = useState<string | null>(null);
-  const [availablePersonas, setAvailablePersonas] = useState<{ id: string; name: string | null }[]>([]);
   const [authToken, setAuthToken] = useState<string | null>(null);
   const [myRole, setMyRole] = useState<'OWNER'|'CONTRIBUTOR'|'VIEWER'|null>(null);
   const [inviteToken, setInviteToken] = useState<string | null>(null);
+  // Background theme is fixed to the default logo image
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const hasWelcomedRef = useRef<boolean>(false);
   // Always point to latest send handler to avoid stale closures inside speech callbacks
@@ -110,6 +110,8 @@ const ChatPage = () => {
     try { localStorage.setItem('simli:avatar:mode', isAvatarFloating ? 'floating' : 'docked'); } catch {}
   }, [isAvatarFloating]);
 
+  // Background is fixed to default theme (logo image)
+
   // Scroll to bottom when new messages arrive
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -138,7 +140,7 @@ const ChatPage = () => {
     }
   }, [navigate, currentUserEmail, isSupabaseAuth]);
 
-  // Resolve persona target from URL first
+  // Resolve persona target strictly from URL first; do not override later
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const pid = params.get('personaId');
@@ -164,57 +166,25 @@ const ChatPage = () => {
     })();
   }, [personaId, currentUserEmail]);
 
-  // Load persona name (live or demo) - prefer most recent when not specified
+  // Load persona name strictly by provided personaId; do not fallback or override
   useEffect(() => {
     (async () => {
-      if (userInfo?.isDemo) {
-        setPersonaName('Sarah Johnson');
-        return;
-      }
-      if (!currentUserEmail) return;
+      if (userInfo?.isDemo) { setPersonaName('Sarah Johnson'); return; }
+      if (!currentUserEmail || !personaId) return;
       if (isSupabaseAuth) {
         try {
-          const [uid, liveP, liveM] = await Promise.all([
-            getCurrentUserId(),
-            listMyPersonas(),
-            listMyMemberships(),
-          ]);
-          if (!uid) return;
-          const memberIds = new Set(liveM.map(m => m.persona_id));
-          const candidates = liveP.filter(p => p.created_by === uid || memberIds.has(p.id));
-          setAvailablePersonas(candidates.map(p => ({ id: p.id, name: p.name || null })));
-          const target = (personaId ? candidates.find(p => p.id === personaId) : undefined) ||
-                        (candidates.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())[0]) ||
-                        liveP[0];
-          if (target) {
-            setPersonaName(target.name || 'Chat');
-            setPersonaId(target.id);
-            const url = new URL(window.location.href);
-            url.searchParams.set('personaId', target.id);
-            window.history.replaceState({}, '', url.toString());
-          }
-        } catch {
-          setPersonaName('Chat');
-        }
+          const { getPersonaById } = await import('../services/supabaseHelpers');
+          const p = await getPersonaById(personaId);
+          if (p) setPersonaName(p.name || 'Chat');
+        } catch {}
       } else {
-        const myIds = new Set(
-          memberships.filter(m => m.userEmail === currentUserEmail).map(m => m.personaId)
-        );
-        const candidates = personas.filter(p => myIds.has(p.id));
-        setAvailablePersonas(candidates.map((p: any) => ({ id: p.id, name: p.subjectFullName || null })) as any);
-        const target = (personaId ? candidates.find(p => p.id === personaId) : undefined) ||
-                       (candidates.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())[0]) ||
-                       personas[0];
-        if (target) {
-          setPersonaName((target as any).subjectFullName || 'Chat');
-          setPersonaId((target as any).id);
-          const url = new URL(window.location.href);
-          url.searchParams.set('personaId', (target as any).id);
-          window.history.replaceState({}, '', url.toString());
-        }
+        try {
+          const byId: any = personas.find(p => (p as any).id === personaId);
+          if (byId) setPersonaName((byId as any).subjectFullName || 'Chat');
+        } catch {}
       }
     })();
-  }, [isSupabaseAuth, currentUserEmail, userInfo, personas, memberships, personaId]);
+  }, [isSupabaseAuth, currentUserEmail, personas, personaId, userInfo?.isDemo]);
 
   const { assistantReply, isStreaming, start, setAssistantReply } = useStreamedChat(authToken, personaId);
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
@@ -241,8 +211,6 @@ const ChatPage = () => {
   const speakMessage = async (text: string, opts?: { onStart?: () => void }) => {
     try {
       if (!voiceEnabled) return;
-      // Interrupt any browser TTS in progress
-      try { synthesisRef.current?.cancel(); } catch {}
       // Prefer server TTS (clone or default) when signed in and persona is known
       if (authToken && personaId) {
         setIsSpeaking(true);
@@ -250,7 +218,7 @@ const ChatPage = () => {
         if (audio) {
           if (isSimliActive) {
             // Attach with local output so WebAudio tees to speakers and Simli
-            try { if (audio.readyState >= 2) await simliRef.current?.attachAudioElement(audio, true); } catch {}
+            try { await simliRef.current?.attachAudioElement(audio, true); } catch {}
             try { audio.addEventListener('play', () => { try { opts?.onStart?.(); } catch {} }); } catch {}
             audio.muted = false;
             await audio.play().catch(() => {});
@@ -269,7 +237,7 @@ const ChatPage = () => {
         const { audio } = await speakTextPreview(inviteToken, personaId, text, { autoplay: false });
         if (audio) {
           if (isSimliActive) {
-            try { if (audio.readyState >= 2) await simliRef.current?.attachAudioElement(audio, true); } catch {}
+            try { await simliRef.current?.attachAudioElement(audio, true); } catch {}
             try { audio.addEventListener('play', () => { try { opts?.onStart?.(); } catch {} }); } catch {}
             audio.muted = false;
             await audio.play().catch(() => {});
@@ -328,10 +296,13 @@ const ChatPage = () => {
     }
     
     setIsTyping(!isSimliActive);
-    const history: ChatMessage[] = [
-      ...messages.map(m => ({ role: m.sender === 'user' ? 'user' as const : 'assistant' as const, content: m.text })),
-      { role: 'user', content: userMessage }
-    ];
+    // Do NOT include cached convo when avatar is active; start fresh each turn
+    const history: ChatMessage[] = isSimliActive
+      ? [{ role: 'user', content: userMessage }]
+      : [
+          ...messages.map(m => ({ role: m.sender === 'user' ? 'user' as const : 'assistant' as const, content: m.text })),
+          { role: 'user', content: userMessage }
+        ];
     setAssistantReply("");
     start(history);
     // Render token-by-token only when Simli avatar is inactive
@@ -347,10 +318,13 @@ const ChatPage = () => {
   // Stream a greeting without injecting a visible user message
   const streamAssistantWelcome = () => {
     setIsTyping(true);
-    const history: ChatMessage[] = [
-      ...messages.map(m => ({ role: m.sender === 'user' ? 'user' as const : 'assistant' as const, content: m.text })),
-      { role: 'user', content: 'Please greet me warmly in one friendly sentence and invite me to share how I am feeling.' }
-    ];
+    // Do not load from any cached transcript when avatar is active
+    const history: ChatMessage[] = isSimliActive
+      ? [{ role: 'user', content: 'Please greet me warmly in one friendly sentence and invite me to share how I am feeling.' }]
+      : [
+          ...messages.map(m => ({ role: m.sender === 'user' ? 'user' as const : 'assistant' as const, content: m.text })),
+          { role: 'user', content: 'Please greet me warmly in one friendly sentence and invite me to share how I am feeling.' }
+        ];
     setAssistantReply("");
     start(history);
     const id = `assist-${Date.now()}`;
@@ -412,7 +386,17 @@ const ChatPage = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-white to-indigo-50">
+    <div className="relative overflow-hidden min-h-screen bg-white">
+      <div
+        className="pointer-events-none absolute inset-0 z-0 bg-[url('/logo.png')] bg-center bg-no-repeat saturate-110"
+        style={{
+          backgroundSize: 'min(60vmin, 600px)',
+          opacity: 0.065,
+          maskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.98) 26%, rgba(0,0,0,0.35) 52%, rgba(0,0,0,0) 80%)',
+          WebkitMaskImage: 'radial-gradient(ellipse at center, rgba(0,0,0,0.98) 26%, rgba(0,0,0,0.35) 52%, rgba(0,0,0,0) 80%)'
+        }}
+      />
+      <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-white/12 via-transparent to-white/12" />
       {/* Navigation */}
       <nav className="fixed top-0 left-0 right-0 z-50 bg-white/95 backdrop-blur-md shadow-lg">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -439,26 +423,7 @@ const ChatPage = () => {
               <p className="text-sm text-gray-600">Digital Soul • Online</p>
             </div>
             <div className="ml-auto flex items-center space-x-2">
-              {availablePersonas.length > 0 && (
-                <select
-                  value={personaId || ''}
-                  onChange={(e) => {
-                    const nextId = e.target.value;
-                    setPersonaId(nextId);
-                    const found = availablePersonas.find(p => p.id === nextId);
-                    if (found) setPersonaName(found.name || 'Chat');
-                    const url = new URL(window.location.href);
-                    if (nextId) url.searchParams.set('personaId', nextId); else url.searchParams.delete('personaId');
-                    window.history.replaceState({}, '', url.toString());
-                    setMessages([]);
-                  }}
-                  className="text-sm border border-gray-300 rounded-md px-2 py-1 bg-white"
-                >
-                  {availablePersonas.map(p => (
-                    <option key={p.id} value={p.id}>{p.name || p.id}</option>
-                  ))}
-                </select>
-              )}
+              {/* Persona dropdown removed to keep chat scoped per selected persona */}
               {myRole === 'VIEWER' && (
                 <span className="text-xs px-2 py-1 rounded-full bg-gray-100 text-gray-600">Viewer</span>
               )}
@@ -486,8 +451,10 @@ const ChatPage = () => {
         <div className="flex-1 px-6 py-4">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 h-full">
             {/* Messages (left) */}
-            <div className="lg:col-span-8 flex flex-col min-h-0">
-              <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+            <div className="lg:col-span-8 flex flex-col min-h-0 relative">
+              {/* subtle vignette behind messages only */}
+              <div className="pointer-events-none absolute inset-0 z-0 [mask-image:radial-gradient(ellipse_at_center,rgba(0,0,0,1),rgba(0,0,0,0.25)_60%,rgba(0,0,0,0)_85%)] bg-gradient-to-b from-black/5 via-black/0 to-black/5 rounded-2xl" />
+              <div className="relative z-10 flex-1 overflow-y-auto space-y-4 pr-1">
                 {messages.length === 0 && (
                   <div className="text-center py-8">
                     <div className="w-16 h-16 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-4">
