@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { Sparkles, ArrowRight, Heart } from 'lucide-react';
 import AuthModal from './auth/AuthModal';
 
@@ -21,6 +21,10 @@ const FinalCTA = () => {
     if (element) {
       element.scrollIntoView({ behavior: 'smooth' });
     }
+  };
+
+  const joinWaitlist = () => {
+    window.open('https://forms.gle/DLb32nhdafE3q2Qc7', '_blank', 'noopener');
   };
 
   return (
@@ -69,6 +73,14 @@ const FinalCTA = () => {
               >
                 <span className="font-medium text-lg">Explore Sample Digital Souls</span>
                 <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform duration-300" />
+              </button>
+
+              <button
+                onClick={joinWaitlist}
+                className="group bg-white text-purple-600 px-8 py-3 rounded-full font-semibold text-lg shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300"
+                aria-label="Join the DigitalSoul waitlist"
+              >
+                Join Waitlist
               </button>
             </div>
 
