@@ -17,6 +17,7 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
   const [isStarting, setIsStarting] = useState(false);
   const [isActive, setIsActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [status, setStatus] = useState<string | null>(null);
 
   // Lazy import client only in browser
   const clientRef = useRef<any>(null);
@@ -25,33 +26,53 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
 
   async function startSession() {
     setError(null);
+    setStatus('Connecting…');
     setIsStarting(true);
+    const MAX_ATTEMPTS = 3;
+    const BACKOFF_MS = [1500, 3000];
+    let attempt = 0;
     try {
-      const qs = personaId ? `?persona_id=${encodeURIComponent(personaId)}` : '';
-      const res = await fetch(`/.netlify/functions/simli-start-session${qs}`, {
-        method: 'POST',
-        headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
-      });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
-      if (!data.api_key) throw new Error('Simli token exchange not configured');
+      while (attempt < MAX_ATTEMPTS) {
+        try {
+          // Exchange token/face id
+          const qs = personaId ? `?persona_id=${encodeURIComponent(personaId)}` : '';
+          const res = await fetch(`/.netlify/functions/simli-start-session${qs}`, {
+            method: 'POST',
+            headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+          });
+          if (!res.ok) throw new Error(await res.text());
+          const data = await res.json();
+          if (!data.api_key) throw new Error('Simli token exchange not configured');
 
-      const mod = await import('simli-client');
-      const { SimliClient } = mod as any;
-      clientRef.current = new SimliClient();
-      if (!videoRef.current || !audioRef.current) throw new Error('Video/Audio elements not ready');
-      clientRef.current.Initialize({
-        apiKey: data.api_key,
-        faceID: data.face_id || '',
-        videoRef: videoRef.current,
-        audioRef: audioRef.current,
-      });
+          // Initialize fresh client for each attempt
+          const mod = await import('simli-client');
+          const { SimliClient } = mod as any;
+          try { await clientRef.current?.close?.(); } catch {}
+          clientRef.current = new SimliClient();
+          if (!videoRef.current || !audioRef.current) throw new Error('Video/Audio elements not ready');
+          clientRef.current.Initialize({
+            apiKey: data.api_key,
+            faceID: data.face_id || '',
+            videoRef: videoRef.current,
+            audioRef: audioRef.current,
+          });
 
-      await clientRef.current.start();
-      setIsActive(true);
-      try { onActiveChange?.(true); } catch {}
+          await clientRef.current.start();
+          setIsActive(true);
+          setStatus(null);
+          try { onActiveChange?.(true); } catch {}
+          return;
+        } catch (err: any) {
+          attempt += 1;
+          if (attempt >= MAX_ATTEMPTS) throw err;
+          setStatus(`Retrying Simli connection… (${attempt + 1}/${MAX_ATTEMPTS})`);
+          try { await clientRef.current?.close?.(); } catch {}
+          await new Promise(r => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]));
+        }
+      }
     } catch (e: any) {
       setError(e?.message || 'Failed to start Simli session');
+      setStatus(null);
     } finally {
       setIsStarting(false);
     }
@@ -108,9 +129,9 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
 
   return (
     <div className="w-full relative">
-      {/* Soft status while starting; non-intrusive and cleared once start() resolves */}
-      {isStarting && !isActive && !error && (
-        <div className="text-sm text-amber-700 mb-2">Connecting… this may take a moment</div>
+      {/* Soft status while starting/retrying; cleared once start() resolves */}
+      {status && !isActive && !error && (
+        <div className="text-sm text-amber-700 mb-2">{status}</div>
       )}
       {error && <div className="text-sm text-red-600 mb-2">{error}</div>}
       <div className="relative aspect-video w-full bg-black rounded overflow-hidden">
