@@ -23,24 +23,43 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
   const clientRef = useRef<any>(null);
   // Reuse a single AudioContext for stability across attaches
   const audioCtxRef = useRef<any>(null);
+  // Allow cancelling in-flight start attempts
+  const startAbortRef = useRef<AbortController | null>(null);
+  // Track the current start run to ignore stale completions
+  const startRunIdRef = useRef<number>(0);
 
   async function startSession() {
     setError(null);
     setStatus('Connecting…');
     setIsStarting(true);
-    const MAX_ATTEMPTS = 3;
-    const BACKOFF_MS = [1500, 3000];
+    const MAX_ATTEMPTS = 5;
+    function backoffMs(attemptIndex: number) {
+      const base = 1000 * Math.pow(2, Math.max(0, attemptIndex)); // 1s,2s,4s,8s,16s
+      const jitter = base * (0.25 * Math.random());
+      return Math.min(15000, Math.round(base + jitter));
+    }
     let attempt = 0;
+    const myRunId = ++startRunIdRef.current;
     try {
       while (attempt < MAX_ATTEMPTS) {
         try {
           // Exchange token/face id
           const qs = personaId ? `?persona_id=${encodeURIComponent(personaId)}` : '';
+          const ac = new AbortController();
+          startAbortRef.current = ac;
           const res = await fetch(`/.netlify/functions/simli-start-session${qs}`, {
             method: 'POST',
             headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined,
+            signal: ac.signal,
           });
-          if (!res.ok) throw new Error(await res.text());
+          if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            console.warn('Simli start-session failed:', res.status, text);
+            // Treat 500/503 as retryable
+            const err = new Error(text || `HTTP ${res.status}`) as any;
+            (err.retryable = res.status === 500 || res.status === 503);
+            throw err;
+          }
           const data = await res.json();
           if (!data.api_key) throw new Error('Simli token exchange not configured');
 
@@ -56,18 +75,25 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
             videoRef: videoRef.current,
             audioRef: audioRef.current,
           });
-
+          
           await clientRef.current.start();
+          if (myRunId !== startRunIdRef.current) return; // stale
           setIsActive(true);
           setStatus(null);
           try { onActiveChange?.(true); } catch {}
           return;
         } catch (err: any) {
+          if (myRunId !== startRunIdRef.current) return; // cancelled or superseded
           attempt += 1;
           if (attempt >= MAX_ATTEMPTS) throw err;
-          setStatus(`Retrying Simli connection… (${attempt + 1}/${MAX_ATTEMPTS})`);
+          const delay = backoffMs(attempt - 1);
+          const msg = (err?.retryable || /\b(500|503)\b|Internal Server Error|Service Unavailable/i.test(String(err?.message)))
+            ? 'Simli temporarily unavailable. Retrying…'
+            : 'Retrying Simli connection…';
+          setStatus(`${msg} (${attempt + 1}/${MAX_ATTEMPTS})`);
           try { await clientRef.current?.close?.(); } catch {}
-          await new Promise(r => setTimeout(r, BACKOFF_MS[Math.min(attempt - 1, BACKOFF_MS.length - 1)]));
+          // small floor to avoid thrash
+          await new Promise(r => setTimeout(r, Math.max(800, delay)));
         }
       }
     } catch (e: any) {
@@ -81,6 +107,9 @@ const SimliAvatarPanel = forwardRef<SimliAvatarHandle, Props>(({ authToken, pers
   async function stopSession() {
     setError(null);
     try {
+      // cancel any in-flight start
+      try { startAbortRef.current?.abort(); } catch {}
+      startRunIdRef.current++;
       await clientRef.current?.close?.();
       await fetch('/.netlify/functions/simli-stop-session', { method: 'POST', headers: authToken ? { Authorization: `Bearer ${authToken}` } : undefined });
     } catch {}
